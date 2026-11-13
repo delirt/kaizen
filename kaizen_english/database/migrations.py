@@ -67,4 +67,20 @@ MIGRATIONS: list[tuple[int, str]] = [
         ALTER TABLE user_settings ADD COLUMN notify_prompted INTEGER NOT NULL DEFAULT 0;
         """,
     ),
+    (
+        3,
+        """
+        -- User reviews left with /feedback. Aggregated stats never expose user ids.
+        CREATE TABLE feedback (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            created_at  TEXT NOT NULL,
+            rating      INTEGER NOT NULL,                 -- 1..5
+            text        TEXT,
+            awaiting    INTEGER NOT NULL DEFAULT 1,       -- 1 while the bot waits for the text message
+            public_ok   INTEGER NOT NULL DEFAULT 0        -- user agreed the review may be quoted anonymously
+        );
+        CREATE INDEX idx_feedback_user ON feedback(user_id, id);
+        """,
+    ),
 ]

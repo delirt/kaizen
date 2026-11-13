@@ -4,6 +4,7 @@
   m:<target>                navigation (today | review | tasks | progress | settings | home)
   lvl:<level>:<o|s>         level choice (o = onboarding, s = settings)
   set:<key>:<value>         settings
+  fb:<1-5|skip|pub:0/1>     feedback flow
   rst:<yes|no>              reset confirmation
 """
 from __future__ import annotations
@@ -36,6 +37,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             resp = learning.choose_level(user.id, parts[1], onboarding=parts[2] == "o")
         elif kind == "set" and len(parts) >= 2:
             resp = learning.handle_setting(user.id, parts[1], ":".join(parts[2:]))
+        elif kind == "fb" and len(parts) >= 2:
+            resp = learning.handle_feedback(user.id, parts[1], parts[2] if len(parts) > 2 else "")
         elif kind == "rst" and len(parts) == 2:
             resp = learning.handle_reset(user.id, parts[1])
         else:

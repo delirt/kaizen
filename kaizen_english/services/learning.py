@@ -7,7 +7,7 @@ exact position inside a lesson), so a restart resumes where the user stopped.
 from __future__ import annotations
 
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from html import escape as e
 from typing import Any
 
@@ -546,3 +546,86 @@ class Learning:
 
     def disable_notifications(self, user_id: int) -> None:
         self.repo.update_settings(user_id, notify_enabled=0)
+
+    # ====================================================================== feedback
+    FEEDBACK_TEXT_WINDOW = timedelta(minutes=30)
+
+    def feedback_prompt(self) -> Screen:
+        rows = [[Btn("⭐" * n if n < 3 else f"{n} ⭐", f"fb:{n}") for n in range(1, 6)]]
+        return Screen("💬 <b>Как тебе Kaizen English?</b>\n\nОцени бота от 1 до 5 — это поможет сделать его лучше.", rows)
+
+    def handle_feedback(self, user_id: int, action: str, value: str = "") -> Response:
+        """Buttons of the /feedback flow: rating -> optional text -> permission to quote."""
+        if action.isdigit() and 1 <= int(action) <= 5:
+            self.repo.add_feedback(user_id, int(action))
+            screen = Screen(f"Спасибо за оценку {action} ⭐!\n\nНапиши в одном сообщении, что понравилось "
+                            "или что стоит улучшить. Можно пропустить 👇",
+                            [[Btn("Пропустить", "fb:skip")]])
+            return Response(edit=screen)
+        row = self.repo.latest_feedback(user_id)
+        if row is None:
+            return Response(toast=texts.STALE_BUTTON, toast_alert=True)
+        if action == "skip":
+            self.repo.update_feedback(row["id"], awaiting=0)
+            return Response(edit=Screen("Спасибо за оценку! 🙏"))
+        if action == "pub" and value in ("0", "1"):
+            self.repo.update_feedback(row["id"], public_ok=int(value))
+            return Response(edit=Screen("Спасибо! Твой отзыв очень помогает 🙏"))
+        return Response(toast=texts.STALE_BUTTON, toast_alert=True)
+
+    def accept_feedback_text(self, user_id: int, text: str) -> Response | None:
+        """Called for free text. Returns None unless the user is in the middle of leaving a review."""
+        row = self.repo.latest_feedback(user_id)
+        if row is None or not row["awaiting"]:
+            return None
+        created = datetime.fromisoformat(row["created_at"])
+        if datetime.now(timezone.utc) - created > self.FEEDBACK_TEXT_WINDOW:
+            self.repo.update_feedback(row["id"], awaiting=0)
+            return None
+        self.repo.update_feedback(row["id"], text=text.strip()[:1000], awaiting=0)
+        return Response(send=[Screen(
+            "Спасибо, записала! 🙏\n\nМожно ли показывать твой отзыв (без имени) в описании проекта?",
+            [[Btn("Да, можно", "fb:pub:1"), Btn("Нет, только автору", "fb:pub:0")]])])
+
+    def feedback_admin_notice(self, user_id: int) -> Screen:
+        row = self.repo.latest_feedback(user_id)
+        return Screen(f"📝 <b>Новый отзыв</b> — {row['rating']} ⭐\n\n{e(row['text'] or '')}")
+
+    # ====================================================================== owner-only
+    def is_admin(self, user_id: int) -> bool:
+        return user_id in self.cfg.admin_ids
+
+    def admin_denied_text(self, user_id: int) -> str:
+        if self.cfg.admin_ids:
+            return "Эта команда доступна только владельцу бота."
+        return ("Команда для владельца ещё не настроена. Добавьте в файл .env строку\n"
+                f"<code>KAIZEN_ADMIN_IDS={user_id}</code>\nи перезапустите бота.")
+
+    def stats_screen(self) -> Screen:
+        today = self.clock.today()
+        st = self.repo.overall_stats(today, today - timedelta(days=6))
+        lines = [
+            "📈 <b>Статистика бота</b> (без личных данных)\n",
+            f"👥 Пользователей: <b>{st['users']}</b>",
+            f"🚀 Начали урок: <b>{st['started']}</b>",
+            f"✅ Прошли хотя бы 1 урок: <b>{st['finished_1']}</b>",
+            f"🔁 Прошли 3 урока и больше: <b>{st['finished_3']}</b>",
+            f"🔥 Активны за 7 дней: <b>{st['active_week']}</b>",
+            f"📖 Уроков пройдено: <b>{st['lessons']}</b>",
+            f"🧠 Слов выучено всего: <b>{st['words']}</b>",
+        ]
+        if st["feedback_n"]:
+            lines.append(f"⭐ Отзывов: <b>{st['feedback_n']}</b>, средняя оценка <b>{st['feedback_avg']:.1f}</b>")
+        else:
+            lines.append("⭐ Отзывов пока нет")
+        return Screen("\n".join(lines))
+
+    def feedbacks_screen(self, limit: int = 10) -> Screen:
+        rows = self.repo.recent_feedback(limit)
+        if not rows:
+            return Screen("Отзывов с текстом пока нет.")
+        parts = [f"📝 <b>Последние отзывы</b> (без имён)\n"]
+        for r in rows:
+            mark = "✅ можно цитировать" if r["public_ok"] else "🔒 только для вас"
+            parts.append(f"{r['rating']} ⭐ · {r['created_at'][:10]} · {mark}\n{e(r['text'])}\n")
+        return Screen("\n".join(parts))

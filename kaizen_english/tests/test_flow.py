@@ -38,7 +38,7 @@ class FakeClock:
 
 
 def make_cfg(path: str) -> Config:
-    return Config(bot_token="x", db_path=path, timezone="UTC", log_level="INFO")
+    return Config(bot_token="x", db_path=path, timezone="UTC", log_level="INFO", admin_ids=(1,))
 
 
 class Env:
@@ -503,6 +503,58 @@ class FlowTests(unittest.TestCase):
         self.assertTrue(any("Повторение" in b.text for b in e.buttons(e.L.home_screen(UID))))
 
 
+class FeedbackStatsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.e = Env(os.path.join(self.tmp.name, "k.db"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_feedback_flow(self):
+        e = self.e
+        self.assertIsNone(e.L.accept_feedback_text(UID, "random text"))      # not leaving a review -> ignored
+        e.L.handle_feedback(UID, "5")
+        r = e.L.accept_feedback_text(UID, "  Очень удобно!  ")
+        self.assertIn("fb:pub:1", [b.data for b in e.buttons(r.send[0])])
+        e.L.handle_feedback(UID, "pub", "1")
+        row = e.repo.latest_feedback(UID)
+        self.assertEqual((row["rating"], row["text"], row["awaiting"], row["public_ok"]), (5, "Очень удобно!", 0, 1))
+        self.assertIsNone(e.L.accept_feedback_text(UID, "second message"))   # one text per review
+        self.assertIn("Очень удобно", e.L.feedback_admin_notice(UID).text)
+        self.assertIn("можно цитировать", e.L.feedbacks_screen().text)
+        self.assertNotIn(str(UID), e.L.feedbacks_screen().text)              # no user ids shown
+
+    def test_feedback_skip_and_expiry(self):
+        e = self.e
+        e.L.handle_feedback(UID, "3")
+        e.L.handle_feedback(UID, "skip")
+        self.assertIsNone(e.L.accept_feedback_text(UID, "late text"))
+        e.L.handle_feedback(UID, "4")
+        e.db.execute("UPDATE feedback SET created_at='2000-01-01T00:00:00+00:00' WHERE awaiting=1")
+        self.assertIsNone(e.L.accept_feedback_text(UID, "too late"))
+
+    def test_stats_numbers_and_admin_only(self):
+        e = self.e
+        e.pick_level()
+        e.play_daily()
+        e.L.handle_feedback(UID, "4")
+        e.L.accept_feedback_text(UID, "ok")
+        text = e.L.stats_screen().text
+        for expected in ("Пользователей: <b>1</b>", "Прошли хотя бы 1 урок: <b>1</b>",
+                         "Слов выучено всего: <b>2</b>", "средняя оценка <b>4.0</b>"):
+            self.assertIn(expected, text)
+        self.assertTrue(e.L.is_admin(1))
+        self.assertFalse(e.L.is_admin(UID))
+        self.assertIn("только владельцу", e.L.admin_denied_text(UID))
+
+    def test_feedback_survives_reset(self):
+        e = self.e
+        e.L.handle_feedback(UID, "5")
+        e.L.handle_reset(UID, "yes")
+        self.assertIsNotNone(e.repo.latest_feedback(UID))
+
+
 class DatabaseTests(unittest.TestCase):
     def test_migrations_idempotent_and_keep_data(self):
         with tempfile.TemporaryDirectory() as d:
@@ -512,7 +564,7 @@ class DatabaseTests(unittest.TestCase):
             e.db.close()
             db = Database(path)
             db.migrate()
-            self.assertEqual(db.schema_version(), 2)
+            self.assertEqual(db.schema_version(), 3)
             self.assertEqual(Repository(db).get_user(UID)["level"], "A2")
 
 

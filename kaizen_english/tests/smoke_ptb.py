@@ -60,7 +60,7 @@ async def run():
         uid = 1
         async def send(raw):
             await app.process_update(Update.de_json(raw, app.bot))
-        for cmd in ["/start", "/today", "/review", "/tasks", "/progress", "/settings", "/reset", "/help", "hello there"]:
+        for cmd in ["/start", "/today", "/review", "/tasks", "/progress", "/settings", "/reset", "/help", "/feedback", "/myid", "/stats", "/feedbacks", "hello there"]:
             n = len(SENT)
             uid += 1
             await send(msg_update(uid, cmd))
@@ -80,6 +80,11 @@ async def run():
         assert db.scalar("SELECT COUNT(*) FROM activities") >= 1
         uid += 1; await send(cb_update(uid, "rst:yes"))
         assert db.scalar("SELECT COUNT(*) FROM activities") == 0
+        # feedback flow through real handlers
+        uid += 1; await send(cb_update(uid, "fb:5"))
+        uid += 1; await send(msg_update(uid, "Классный бот!"))
+        assert db.scalar("SELECT text FROM feedback") == "Классный бот!", "review text not saved"
+        print("review saved:", SENT[-1][1]["text"][:40].replace("\n", " "))
         # garbage callback does not crash
         uid += 1; await send(cb_update(uid, "zzz"))
         uid += 1; await send(cb_update(uid, "a:abc:1:go"))

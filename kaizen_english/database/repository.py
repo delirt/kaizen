@@ -175,3 +175,40 @@ class Repository:
             self.db.execute("DELETE FROM user_words WHERE user_id=?", (user_id,))
             self.db.execute("DELETE FROM activities WHERE user_id=?", (user_id,))
             self.db.execute("UPDATE users SET state='idle', last_learning_date=NULL WHERE user_id=?", (user_id,))
+
+    # ---- feedback & statistics -------------------------------------------
+    def add_feedback(self, user_id: int, rating: int) -> int:
+        cur = self.db.execute("INSERT INTO feedback(user_id, created_at, rating) VALUES (?,?,?)",
+                              (user_id, _now(), rating))
+        return int(cur.lastrowid)
+
+    def latest_feedback(self, user_id: int) -> dict[str, Any] | None:
+        return self.db.fetchone("SELECT * FROM feedback WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,))
+
+    def update_feedback(self, feedback_id: int, **fields: Any) -> None:
+        if not fields or not set(fields) <= {"text", "awaiting", "public_ok"}:
+            raise ValueError(f"bad feedback fields: {fields}")
+        cols = ", ".join(f"{k}=?" for k in fields)
+        self.db.execute(f"UPDATE feedback SET {cols} WHERE id=?", (*fields.values(), feedback_id))
+
+    def recent_feedback(self, limit: int) -> list[dict[str, Any]]:
+        return self.db.fetchall(
+            "SELECT id, created_at, rating, text, public_ok FROM feedback"
+            " WHERE text IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,))
+
+    def overall_stats(self, today: date, week_start: date) -> dict[str, Any]:
+        """Aggregated numbers for the bot owner (no personal data)."""
+        d = self.db
+        fb = d.fetchone("SELECT COUNT(*) AS n, AVG(rating) AS avg FROM feedback") or {"n": 0, "avg": None}
+        return {
+            "users": d.scalar("SELECT COUNT(*) FROM users"),
+            "started": d.scalar("SELECT COUNT(DISTINCT user_id) FROM activities WHERE kind='daily'"),
+            "finished_1": d.scalar("SELECT COUNT(DISTINCT user_id) FROM activities WHERE kind='daily' AND status='done'"),
+            "finished_3": d.scalar("SELECT COUNT(*) FROM (SELECT user_id FROM activities WHERE kind='daily'"
+                                   " AND status='done' GROUP BY user_id HAVING COUNT(*) >= 3)"),
+            "active_week": d.scalar("SELECT COUNT(DISTINCT user_id) FROM activities WHERE day >= ?",
+                                    (week_start.isoformat(),)),
+            "lessons": d.scalar("SELECT COUNT(*) FROM activities WHERE kind='daily' AND status='done'"),
+            "words": d.scalar("SELECT COUNT(*) FROM user_words"),
+            "feedback_n": fb["n"], "feedback_avg": fb["avg"],
+        }

@@ -34,12 +34,18 @@ class Config:
     review_max: int = 10              # max words in one manual /review run
     practice_size: int = 4            # exercises in "additional practice"
     notify_window_hours: int = 3      # don't send a reminder later than this after the chosen time
+    admin_ids: tuple[int, ...] = ()   # Telegram ids allowed to use /stats and /feedbacks
+
+
+def _parse_ids(raw: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in raw.replace(";", ",").split(",") if x.strip().lstrip("-").isdigit())
 
 
 def load_config() -> Config:
     _load_dotenv(BASE_DIR / ".env")
     _load_dotenv(BASE_DIR.parent / ".env")
     return Config(
+        admin_ids=_parse_ids(os.environ.get("KAIZEN_ADMIN_IDS", "")),
         bot_token=os.environ.get("BOT_TOKEN", "").strip(),
         db_path=os.environ.get("KAIZEN_DB_PATH", str(BASE_DIR / "data" / "kaizen.db")),
         timezone=os.environ.get("KAIZEN_TIMEZONE", "Europe/Moscow"),
