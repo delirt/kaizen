@@ -403,7 +403,12 @@ class Learning:
             text = texts.DAILY_DONE
             if st.get("vocab_finished"):
                 text = f"{texts.VOCAB_FINISHED}\n\n{text}"
-            return Response(strip=True, send=[Screen(text, [[Btn("🧠 Дополнительные задания", "m:tasks")]])])
+            screens = [Screen(text, [[Btn("🧠 Дополнительные задания", "m:tasks")]])]
+            settings = self.repo.get_settings(user_id)
+            if not settings.get("notify_enabled") and not settings.get("notify_prompted"):
+                self.repo.update_settings(user_id, notify_prompted=1)   # offer only once
+                screens.append(self.notify_offer_screen())
+            return Response(strip=True, send=screens)
         if act["kind"] == "review":
             text = (f"✅ <b>Повторение завершено!</b>\nС первой попытки верно: {st['ok']} из {st['total']}.\n"
                     "Слова, где были ошибки, вернутся раньше — так память крепнет 🌱")
@@ -470,7 +475,23 @@ class Learning:
         ]
         return Screen(text, rows)
 
+    def notify_offer_screen(self) -> Screen:
+        """Shown once, right after the first finished lesson."""
+        rows = [[Btn(t, f"set:onb:{t}") for t in NOTIFY_TIMES[i:i + 3]] for i in range(0, len(NOTIFY_TIMES), 3)]
+        rows.append([Btn("Не нужно", "set:onb:no")])
+        return Screen("🔔 <b>Хочешь напоминания?</b>\n\nВыбери удобное время — я буду напоминать об уроке "
+                      "раз в день, и только если он ещё не пройден. Это можно изменить в /settings.", rows)
+
     def handle_setting(self, user_id: int, key: str, value: str) -> Response:
+        if key == "onb":
+            if value == "no":
+                self.repo.update_settings(user_id, notify_enabled=0)
+                return Response(edit=Screen("Хорошо, без напоминаний 👍 Включить их можно в /settings."))
+            if value in NOTIFY_TIMES:
+                self.repo.update_settings(user_id, notify_time=value, notify_enabled=1)
+                return Response(edit=Screen(f"Готово ✅ Буду напоминать каждый день в <b>{value}</b>. "
+                                            "Изменить время можно в /settings."))
+            return Response(toast=texts.STALE_BUTTON)
         if key == "level":
             return Response(edit=self.level_screen(onboarding=False))
         if key == "target" and value in ("2", "3"):

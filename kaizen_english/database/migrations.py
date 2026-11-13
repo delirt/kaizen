@@ -60,4 +60,11 @@ MIGRATIONS: list[tuple[int, str]] = [
         CREATE INDEX idx_activities_user ON activities(user_id, kind, status);
         """,
     ),
+    (
+        2,
+        """
+        -- Was the user already offered to choose a reminder time (after the first finished lesson)?
+        ALTER TABLE user_settings ADD COLUMN notify_prompted INTEGER NOT NULL DEFAULT 0;
+        """,
+    ),
 ]

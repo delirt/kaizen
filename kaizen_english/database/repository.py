@@ -7,7 +7,8 @@ from typing import Any
 
 from database.db import Database
 
-SETTINGS_FIELDS = {"daily_target", "notify_enabled", "notify_time", "last_notified_date", "mode"}
+SETTINGS_FIELDS = {"daily_target", "notify_enabled", "notify_time", "last_notified_date", "mode",
+                   "notify_prompted"}
 WORD_FIELDS = (
     "status", "first_learned", "last_review", "next_review", "correct_count",
     "incorrect_count", "stage", "reviewed_ok", "last_ex_type",

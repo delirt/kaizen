@@ -453,6 +453,44 @@ class FlowTests(unittest.TestCase):
         e.play_daily()
         self.assertEqual(e.L.users_to_remind(), [])                   # lesson finished -> no reminder
 
+    def test_notification_offer_after_first_lesson_only_once(self):
+        e = self.env
+        e.pick_level()
+        done_resp = None
+        resp = e.L.start_daily(UID)
+        screen = resp.send[0]
+        while True:                                                   # play the lesson, keep the last Response
+            act, _ = e.act_of(screen)
+            if act["state"]["phase"] == "card":
+                screen = e.last(e.press(screen, "go"))
+                continue
+            screen = e.last(e.answer(screen))
+            r = e.press(screen, "nx")
+            if not any(b.data.startswith("a:") for b in e.buttons(r.send[0])):
+                done_resp = r
+                break
+            screen = r.send[0]
+        self.assertEqual(done_resp.send[0].text, texts.DAILY_DONE)
+        offer = done_resp.send[1]
+        self.assertIn("напоминания", offer.text)
+        self.assertIn("set:onb:19:00", [b.data for b in e.buttons(offer)])
+        r = e.L.handle_setting(UID, "onb", "19:00")
+        s = e.repo.get_settings(UID)
+        self.assertEqual((s["notify_enabled"], s["notify_time"]), (1, "19:00"))
+        self.assertIn("19:00", r.edit.text)
+        # next day: not offered again
+        e.clock.advance(1)
+        done = e.play_daily()
+        self.assertEqual(done.text, texts.DAILY_DONE)
+
+    def test_notification_offer_declined_not_repeated(self):
+        e = self.env
+        e.pick_level()
+        e.play_daily()
+        self.assertEqual(e.repo.get_settings(UID)["notify_prompted"], 1)
+        e.L.handle_setting(UID, "onb", "no")
+        self.assertEqual(e.repo.get_settings(UID)["notify_enabled"], 0)
+
     def test_start_and_home_screens_follow_state(self):
         e = self.env
         self.assertEqual(e.L.start_screen(UID).text, texts.WELCOME)
@@ -474,7 +512,7 @@ class DatabaseTests(unittest.TestCase):
             e.db.close()
             db = Database(path)
             db.migrate()
-            self.assertEqual(db.schema_version(), 1)
+            self.assertEqual(db.schema_version(), 2)
             self.assertEqual(Repository(db).get_user(UID)["level"], "A2")
 
 
