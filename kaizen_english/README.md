@@ -108,8 +108,6 @@ python main.py
 временная — без volume прогресс пропадёт при каждом деплое.
 
 * **VPS (systemd):** `KAIZEN_DB_PATH=/var/lib/kaizen/kaizen.db`, юнит с `Restart=always`, `EnvironmentFile=` с токеном.
-* **Docker:** `docker build -t kaizen . && docker run -d --restart=always -e BOT_TOKEN=... -v kaizen-data:/data kaizen`
-  (в образе `KAIZEN_DB_PATH=/data/kaizen.db`).
 * **Fly.io / Railway / Render и т. п.:** создайте persistent volume, смонтируйте в `/data`, задайте `BOT_TOKEN` как
   секрет и `KAIZEN_DB_PATH=/data/kaizen.db`. Без volume не деплойте.
 * Если понадобится несколько экземпляров или управляемая БД, слой `database/repository.py` — единственное
